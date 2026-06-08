@@ -14,9 +14,9 @@ prices, times, baggage, seat, and routing trade-offs.
 
 ## Traveller preferences
 
-**Origin:** MPL (Montpellier) by default. If MPL returns no viable results for
-warm or exotic destinations, also search MRS (Marseille, around 1.5 hours by
-train) and flag this substitution to the user.
+**Origin:** MPL (Montpellier) by default. If MPL returns no viable results, also
+search MRS (Marseille, around 1.5 hours by train) and flag this substitution to
+the user.
 
 **Ticket type:** One-way unless the destination is USA/transatlantic, in which
 case use round-trip. If round-trip is needed and no return date is given, pause
@@ -128,10 +128,13 @@ After collecting results, discard flights that:
   routes.
 - Have more than 1 stop.
 
-## Step 3: Fallback via Skyscanner in the browser
+## Step 3: Cross-check via Skyscanner in the browser
 
-Use this only if SerpApi fails because of quota exhaustion, auth errors, or zero
-results across all dates and both MPL/MRS.
+Always run a Skyscanner search after the SerpApi search. SerpApi is faster, but
+it is not always comprehensive; use Skyscanner as a cross-check for missing
+routes, airlines, providers, or cheaper fares. If SerpApi fails because of quota
+exhaustion, auth errors, or zero results across all dates and both MPL/MRS, use
+Skyscanner as the primary source instead.
 
 Open Skyscanner in a browser. URL patterns:
 
@@ -151,6 +154,10 @@ currency, not necessarily EUR.
 Search target date +/- 2 days, apply direct-only filters first, and if none
 exist, search 1-stop options. Apply the same time filters as above, then collect
 flight details from the page.
+
+Compare Skyscanner results against the SerpApi shortlist. Add any viable options
+that SerpApi missed, and flag material price or routing disagreements between
+the two sources.
 
 ## Step 4: Output
 
@@ -172,15 +179,3 @@ Present the top 3 options in this exact format:
 
 Then add a **longer shortlist** section: a bullet list of remaining viable
 options with airline, times, price, and a one-line note.
-
-## Step 5: Red flags
-
-Pause and ask before proceeding when:
-
-- A transatlantic request lacks a return date.
-- Only 1-stop options exist across the entire +/- 2-day window.
-- Seat fees exceed the caps: more than EUR50 short-haul or EUR100 long-haul.
-- The cheapest option violates the time-value rule but is otherwise attractive.
-- A third-party agent is more than 30% cheaper than buying direct.
-- A cabin upgrade is available but costs more than the cheap threshold of around
-  EUR15-20. Surface it; do not auto-accept it.
