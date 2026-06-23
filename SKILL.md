@@ -14,12 +14,12 @@ description: >
 
 **Origin:** MPL (Montpellier) by default. If MPL returns no viable results, also search MRS (Marseille, ~1.5h by train)—flag this substitution. When proposing an MRS departure, budget the ground access realistically: the airport train station (Vitrolles–Aéroport Marseille Provence) is **not** walking distance to the terminals—there's a ~10-minute shuttle to Terminal 1 running only every 10–20 minutes. Add this shuttle time (plus wait) on top of the train journey when working back from the check-in/boarding deadline.
 
-**Ticket type:** One-way unless the destination is USA/transatlantic, in which case use round-trip. If round-trip is needed and no return date is given, pause and ask before searching.
+**Ticket type:** Assume one-way unless the destination is USA/transatlantic, in which case use round-trip. If round-trip is needed and no return date is given, pause and ask before searching.
 
 **Cabin:**
 * Premium Economy for transatlantic flights
 * Economy for all others
-* **Cheap upgrades:** if a higher cabin (premium economy / business / first) is offered for a small marginal cost — roughly single-digit euros, or a small fraction of the base fare — take it automatically; this overrides the baseline cabin above when the upgrade cost is trivial. For larger upgrade costs (more than ~€15–20, or a meaningful fraction of the fare), surface it and let the user decide.
+* **Cheap upgrades:** if a higher cabin (premium economy / business / first) costs ≤20% more than the base fare, take it automatically; above that, surface it and let the user decide.
 
 **Date flexibility:** ±2 days unless told otherwise. Always search all five candidate dates.
 
@@ -33,7 +33,7 @@ description: >
 
 **Seats:** Always include front-of-cabin / extra-legroom options. Flag if seat fee >€50 short-haul or >€100 long-haul.
 
-**Fast-track security:** Whenever booking a flight or confirming an itinerary, check whether the departure airport (and any connection/return airport) sells a paid fast-track / priority security lane, and book it alongside the flight. These are cheap (e.g. Marseille's "Coupe-File" is €7) and **online sales usually close the day before departure**, so book up front — don't leave it to the last minute. Surface the option and cost; default to including it (consistent with the cheap-upgrades rule). Note any per-airport quirks, e.g. MRS Coupe-File: €7, online on the AMP Store until the day before, otherwise buyable on the day at the **Terminal 1 Information desk**.
+**Fast-track security:** Whenever booking a flight or confirming an itinerary, check whether the departure airport (and any connection/return airport) sells a paid fast-track / priority security lane, and book it alongside the flight.
 
 **Price vs time:** Value 1 hour of travel-time reduction at €50. Show time-vs-price deltas explicitly in the output.
 
@@ -41,7 +41,7 @@ description: >
 
 **Accommodation alongside a flight:** If the user also wants a hotel (common for stopovers and late arrivals), use the **find-hotel** skill—it owns the accommodation preferences (default to Booking.com but cross-check direct; non-refundable by default but surface flexible rates when arrival is late or same-day). For Airbnb / short-term rentals use **find-airbnb**.
 
-**Third-party agents:** If a third-party agent is >30% cheaper than buying direct, pause and ask the user before proceeding.
+**Third-party agents:** If a third-party agent is >20% cheaper than buying direct, pause and ask the user before proceeding.
 
 ---
 
@@ -60,9 +60,7 @@ If the request is clear, proceed without asking.
 
 Ensure the `google-search-results` package is installed: `pip install google-search-results`
 
-Search each of the 5 candidate dates (target ±2 days). For one-way flights, use `type: '2'`; for round-trip, use `type: '1'`.
-
-The 5 date queries are independent, so fire them **concurrently** in a single script rather than looping sequentially—a thread pool cuts wall-clock to roughly the slowest single request.
+Search each of the 5 candidate dates (target ±2 days). For one-way flights, use `type: '2'`; for round-trip, use `type: '1'`. Fire the 5 dates concurrently.
 
 **Python pattern:**
 
@@ -106,7 +104,7 @@ with open('/tmp/find-flights-serpapi.json', 'w') as fh:
     json.dump(flights, fh)
 ```
 
-**Run it in the background to parallelise with Step 3.** The Skyscanner browser cross-check (Step 3) is slow, so launch this Python script with `run_in_background` and proceed to Step 3 on the main thread while it runs. Collect the JSON output at Step 3b. (Browser automation stays on the main thread—claude-in-chrome cannot be reliably driven from a subagent—so backgrounding the Python script is how we get the two tracks running at once.)
+**Run it in the background to parallelise with Step 3.** Launch this script with `run_in_background`, then do the Skyscanner browser work (Step 3) while it runs. Collect the JSON output at Step 3b.
 
 **Key notes:**
 * `return_date` is required when `type` is `'1'` (round-trip)
@@ -138,8 +136,6 @@ Always run a Skyscanner search. SerpApi is faster, but it is not always comprehe
    https://www.skyscanner.net/transport/flights/{from}/{to}/{YYMMDD}/{YYMMDD_return}/?adultsv2=1&cabinclass=economy&rtn=1
    ```
    `{from}`/`{to}` are lowercase IATA codes; `{YYMMDD}` is the date (e.g. `260624` = 24 Jun 2026). The page loads ~5–7s of JS before all providers report — wait before reading. Prices render in the browser's locale currency (often £ GBP), not necessarily EUR.
-
-   **Use `adultsv2=1`, not `adults=1`** — the legacy `adults=1` param now returns a "Page not found" error on Skyscanner. Add `rtn=0` for one-way / `rtn=1` for round-trip.
 3. Search target date ±2 days
 4. Apply filters: direct only first; if none, 1-stop
 5. Apply time filters matching the preferences above
@@ -155,20 +151,14 @@ Wait for **both** sources before merging: the background SerpApi script (read it
 
 ## Step 4: Output
 
-Present **top 3 options** in this exact format:
+Present the **top 3 options** as a table, one row per option:
 
-```
-**€TOTAL (incl. seat + carry-on add-ons)**
-• [Airline] [Flight number(s)]
-• [Cabin class]
-• [Date] [Dep time] [Dep airport] → [Date] [Arr time] [Arr airport]
-• Duration [h:mm]
-• [Direct / 1 stop at XXX for Xh Xm]
-**Baggage:** [inclusions + assumed add-ons with €]
-**Seats:** [front/extra-legroom availability and cost]
-**Why ranked #n:** [time vs price delta using €50/hr rule]
-**Pros:** [one line]
-**Cons:** [one line]
-```
+| # | €Total (incl. add-ons) | Airline / flight | Cabin | Route | Duration | Stops | Baggage | Seats |
+|---|---|---|---|---|---|---|---|---|
+| 1 | €XXX | [Airline] [Flight no.] | [Cabin] | [Date] [Dep] [DEP]→[Date] [Arr] [ARR] | [h:mm] | [Direct / 1 stop XXX Xh Xm] | [incl + add-ons €] | [front/extra-legroom availability + €] |
+
+Then, beneath the table, for each option:
+
+**#n** — Why ranked: [time vs price delta using €50/hr rule]. Pros: [one line]. Cons: [one line].
 
 Then add a **Longer shortlist** section: a bullet list of remaining viable options with airline, times, price, and 1-line note.
