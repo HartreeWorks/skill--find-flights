@@ -113,7 +113,7 @@ with open('/tmp/find-flights-serpapi.json', 'w') as fh:
 * If MPL returns 0 results across all dates, re-run the same concurrent batch with `departure_id='MRS'` and note the substitution
 
 **Filtering:** After collecting results, discard flights that:
-* Depart before 07:00 or after (dep time cut-off for routing constraints)
+* Depart before 07:00 (the absolute earliest)
 * Arrive after 21:00 (short-haul; relax for transatlantic)
 * Have more than 1 stop
 
