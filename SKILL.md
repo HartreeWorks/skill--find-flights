@@ -1,181 +1,174 @@
 ---
 name: find-flights
 description: >
-  Use this skill when the user asks to search for flights, find the best
-  flight, book a flight, or compare flight options. It searches multiple
-  candidate dates, ranks options by traveller preferences, and returns prices,
-  times, baggage, seat, and routing trade-offs.
+  This skill should be used when the user asks to search for flights,
+  find the best flight, book a flight, or compare flight options.
+  Triggers: "find flights", "search flights", "book a flight", "what flights",
+  "fly to", "flight options". Returns ranked options with prices, times, and
+  your preference rules applied.
 ---
 
-# Find flights
+# Skill: Find flights
 
-Search for flights, compare options, and return ranked recommendations with
-prices, times, baggage, seat, and routing trade-offs.
+## Preferences
 
-## Traveller preferences
+**Origin:** MPL (Montpellier) by default. If MPL returns no viable results, also search MRS (Marseille, ~1.5h by train)—flag this substitution. When proposing an MRS departure, budget the ground access realistically: the airport train station (Vitrolles–Aéroport Marseille Provence) is **not** walking distance to the terminals—there's a ~10-minute shuttle to Terminal 1 running only every 10–20 minutes. Add this shuttle time (plus wait) on top of the train journey when working back from the check-in/boarding deadline.
 
-**Origin:** MPL (Montpellier) by default. If MPL returns no viable results, also
-search MRS (Marseille, around 1.5 hours by train) and flag this substitution to
-the user.
-
-**Ticket type:** One-way unless the destination is USA/transatlantic, in which
-case use round-trip. If round-trip is needed and no return date is given, pause
-and ask before searching.
+**Ticket type:** One-way unless the destination is USA/transatlantic, in which case use round-trip. If round-trip is needed and no return date is given, pause and ask before searching.
 
 **Cabin:**
+* Premium Economy for transatlantic flights
+* Economy for all others
+* **Cheap upgrades:** if a higher cabin (premium economy / business / first) is offered for a small marginal cost — roughly single-digit euros, or a small fraction of the base fare — take it automatically; this overrides the baseline cabin above when the upgrade cost is trivial. For larger upgrade costs (more than ~€15–20, or a meaningful fraction of the fare), surface it and let the user decide.
 
-- Premium Economy for transatlantic flights
-- Economy for all others
-- **Cheap upgrades:** if a higher cabin (premium economy / business / first) is
-  offered for a small marginal cost, roughly single-digit euros or a small
-  fraction of the base fare, take it automatically. This overrides the baseline
-  cabin above when the upgrade cost is trivial. For larger upgrade costs, more
-  than around EUR15-20 or a meaningful fraction of the fare, surface it and let
-  the user decide.
-
-**Date flexibility:** +/- 2 days unless told otherwise. Always search all five
-candidate dates.
+**Date flexibility:** ±2 days unless told otherwise. Always search all five candidate dates.
 
 **Preferred times:**
+* Depart ≥10:00 (absolute earliest 07:00)
+* Arrive ≤21:00 (flexible for transatlantic)
 
-- Depart at or after 10:00, with 07:00 as the absolute earliest departure
-- Arrive at or before 21:00, flexible for transatlantic routes
+**Connections:** Direct strongly preferred. If no direct options exist across the full ±2-day window, consider 1-stop. Never multi-day stopovers.
 
-**Connections:** Direct strongly preferred. If no direct options exist across
-the full +/- 2-day window, consider 1-stop. Never multi-day stopovers.
+**Baggage:** Personal item + overhead carry-on. No hold luggage assumed. Flag any checked-bag requirements.
 
-**Baggage:** Personal item plus overhead carry-on. No hold luggage assumed. Flag
-any checked-bag requirements.
+**Seats:** Always include front-of-cabin / extra-legroom options. Flag if seat fee >€50 short-haul or >€100 long-haul.
 
-**Seats:** Always include front-of-cabin / extra-legroom options. Flag if seat
-fee is more than EUR50 short-haul or EUR100 long-haul.
+**Fast-track security:** Whenever booking a flight or confirming an itinerary, check whether the departure airport (and any connection/return airport) sells a paid fast-track / priority security lane, and book it alongside the flight. These are cheap (e.g. Marseille's "Coupe-File" is €7) and **online sales usually close the day before departure**, so book up front — don't leave it to the last minute. Surface the option and cost; default to including it (consistent with the cheap-upgrades rule). Note any per-airport quirks, e.g. MRS Coupe-File: €7, online on the AMP Store until the day before, otherwise buyable on the day at the **Terminal 1 Information desk**.
 
-**Price vs time:** Value 1 hour of travel-time reduction at EUR50. Show
-time-vs-price deltas explicitly in the output.
+**Price vs time:** Value 1 hour of travel-time reduction at €50. Show time-vs-price deltas explicitly in the output.
 
-**Fare type:** Non-refundable is the default for both flights and any
-accommodation booked alongside them unless the user explicitly asks for
-refundable or flexible. Pick the cheapest non-refundable fare/rate. No insurance
-add-ons.
+**Fare type:** **Non-refundable is always the default**—for both flights and any accommodation booked alongside them—unless the user explicitly asks for refundable/flexible. Pick the cheapest non-refundable fare/rate. No insurance add-ons.
 
-**Third-party agents:** If a third-party agent is more than 30% cheaper than
-buying direct, pause and ask before proceeding.
+**Accommodation alongside a flight:** If the user also wants a hotel (common for stopovers and late arrivals), use the **find-hotel** skill—it owns the accommodation preferences (default to Booking.com but cross-check direct; non-refundable by default but surface flexible rates when arrival is late or same-day). For Airbnb / short-term rentals use **find-airbnb**.
 
-## Step 1: Clarify inputs if needed
+**Third-party agents:** If a third-party agent is >30% cheaper than buying direct, pause and ask the user before proceeding.
+
+---
+
+## Step 1: Clarify inputs (if needed)
 
 Before searching, confirm:
-
 1. Destination airport/city
 2. Target departure date
-3. Return date for transatlantic routes
+3. Return date (transatlantic only—if not given, ask)
 
 If the request is clear, proceed without asking.
 
-## Step 2: Primary search via SerpApi
+---
 
-Ensure the `google-search-results` package is installed:
+## Step 2: Primary search—SerpApi
 
-```bash
-pip install google-search-results
-```
+Ensure the `google-search-results` package is installed: `pip install google-search-results`
 
-Create a local `.env` file with:
+Search each of the 5 candidate dates (target ±2 days). For one-way flights, use `type: '2'`; for round-trip, use `type: '1'`.
 
-```bash
-SERPAPI_KEY=your_serpapi_key_here
-```
+The 5 date queries are independent, so fire them **concurrently** in a single script rather than looping sequentially—a thread pool cuts wall-clock to roughly the slowest single request.
 
-Search each of the five candidate dates: target date +/- 2 days. For one-way
-flights, use `type: "2"`; for round-trip flights, use `type: "1"`.
+**Python pattern:**
 
 ```python
 from dotenv import load_dotenv
+from concurrent.futures import ThreadPoolExecutor
 import os
 from serpapi import GoogleSearch
 
-load_dotenv()
-api_key = os.environ["SERPAPI_KEY"]
+load_dotenv('.env')          # this skill's .env — see .env.example for the key it needs
+api_key = os.environ['SERPAPI_KEY']
 
-params = {
-    "engine": "google_flights",
-    "departure_id": "MPL",
-    "arrival_id": "REY",
-    "outbound_date": "2026-03-25",
-    # "return_date": "2026-04-01",  # include for round-trips (type "1")
-    "type": "2",                    # "1" = round-trip, "2" = one-way
-    "currency": "EUR",
-    "hl": "en",
-    "api_key": api_key,
-}
+CANDIDATE_DATES = [           # target ±2 days
+    '2026-03-23', '2026-03-24', '2026-03-25', '2026-03-26', '2026-03-27',
+]
 
-r = GoogleSearch(params).get_dict()
-flights = r.get("best_flights", []) + r.get("other_flights", [])
+def search_date(outbound_date, departure_id='MPL'):
+    params = {
+        'engine': 'google_flights',
+        'departure_id': departure_id,   # adjust as needed
+        'arrival_id': 'REY',            # destination IATA code
+        'outbound_date': outbound_date,
+        # 'return_date': '2026-04-01',  # include for round-trips (type '1')
+        'type': '2',                    # '1'=round-trip, '2'=one-way
+        'currency': 'EUR',
+        'hl': 'en',
+        'api_key': api_key,
+    }
+    r = GoogleSearch(params).get_dict()
+    return outbound_date, r.get('best_flights', []) + r.get('other_flights', [])
+
+# Fire all 5 dates concurrently
+with ThreadPoolExecutor(max_workers=5) as pool:
+    results = dict(pool.map(lambda d: search_date(d), CANDIDATE_DATES))
+
+flights = [f for date_flights in results.values() for f in date_flights]
+
+# Write results to a file so this script can run in the background (see below)
+import json
+with open('/tmp/find-flights-serpapi.json', 'w') as fh:
+    json.dump(flights, fh)
 ```
 
-Key notes:
+**Run it in the background to parallelise with Step 3.** The Skyscanner browser cross-check (Step 3) is slow, so launch this Python script with `run_in_background` and proceed to Step 3 on the main thread while it runs. Collect the JSON output at Step 3b. (Browser automation stays on the main thread—claude-in-chrome cannot be reliably driven from a subagent—so backgrounding the Python script is how we get the two tracks running at once.)
 
-- `return_date` is required when `type` is `"1"` for round-trip searches.
-- The return leg is not included in the outbound response. Run a separate query
-  for it.
-- Run once per candidate date; collect and deduplicate results.
-- If MPL returns no results across all dates, re-run with `departure_id: "MRS"`
-  and note the substitution.
+**Key notes:**
+* `return_date` is required when `type` is `'1'` (round-trip)
+* The return leg is NOT included in the outbound response—run a separate concurrent batch for it
+* Collect across all dates and deduplicate results
+* If MPL returns 0 results across all dates, re-run the same concurrent batch with `departure_id='MRS'` and note the substitution
 
-After collecting results, discard flights that:
+**Filtering:** After collecting results, discard flights that:
+* Depart before 07:00 or after (dep time cut-off for routing constraints)
+* Arrive after 21:00 (short-haul; relax for transatlantic)
+* Have more than 1 stop
 
-- Depart before 07:00.
-- Arrive after 21:00 for short-haul routes. Relax this for transatlantic
-  routes.
-- Have more than 1 stop.
+---
 
-## Step 3: Cross-check via Skyscanner in the browser
+## Step 3: Cross-check—Skyscanner via browser (main thread)
 
-Always run a Skyscanner search after the SerpApi search. SerpApi is faster, but
-it is not always comprehensive; use Skyscanner as a cross-check for missing
-routes, airlines, providers, or cheaper fares. If SerpApi fails because of quota
-exhaustion, auth errors, or zero results across all dates and both MPL/MRS, use
-Skyscanner as the primary source instead.
+Always run a Skyscanner search. SerpApi is faster, but it is not always comprehensive; use Skyscanner as a cross-check for missing routes, airlines, providers, or cheaper fares. If SerpApi fails (quota exhausted, auth error, or 0 results across all dates and both MPL/MRS), use Skyscanner as the primary source instead.
 
-Open Skyscanner in a browser. URL patterns:
+**This step runs on the main thread, not in a subagent**—claude-in-chrome cannot be reliably driven from a subagent. To parallelise, start Step 2's Python script in the background (`run_in_background`) and do this browser work while it runs; reconcile at Step 3b.
 
-```text
-# One-way
-https://www.skyscanner.net/transport/flights/{from}/{to}/{YYMMDD}/?adults=1&cabinclass=economy
+**Always access Skyscanner via claude-in-chrome using your _personal_ Chrome profile**—never any other profile, and never plain WebFetch/curl (Skyscanner needs the real browser session to render all providers). For best results, pin the specific profile by filling in your own values (redacted here): display name `1. ******`, on-disk directory `Default`, account `******@*****.***`, extension profile ID `********-****-****-****-************`. Select/confirm this profile (e.g. via `mcp__claude-in-chrome__select_browser` / `list_connected_browsers`) before navigating; if only a non-personal profile is connected, stop and ask the user to connect the personal one rather than proceeding on the wrong profile.
 
-# Round-trip
-https://www.skyscanner.net/transport/flights/{from}/{to}/{YYMMDD}/{YYMMDD_return}/?adults=1&cabinclass=economy
-```
+1. Open Skyscanner using `mcp__claude-in-chrome__navigate`
+2. URL pattern:
+   ```
+   # One-way (default):
+   https://www.skyscanner.net/transport/flights/{from}/{to}/{YYMMDD}/?adultsv2=1&cabinclass=economy&rtn=0
+   # Round-trip:
+   https://www.skyscanner.net/transport/flights/{from}/{to}/{YYMMDD}/{YYMMDD_return}/?adultsv2=1&cabinclass=economy&rtn=1
+   ```
+   `{from}`/`{to}` are lowercase IATA codes; `{YYMMDD}` is the date (e.g. `260624` = 24 Jun 2026). The page loads ~5–7s of JS before all providers report — wait before reading. Prices render in the browser's locale currency (often £ GBP), not necessarily EUR.
 
-`{from}` and `{to}` are lowercase IATA codes. `{YYMMDD}` is the date, e.g.
-`260624` for 24 June 2026. The page loads several seconds of JavaScript before
-all providers report; wait before reading. Prices render in the browser's locale
-currency, not necessarily EUR.
+   **Use `adultsv2=1`, not `adults=1`** — the legacy `adults=1` param now returns a "Page not found" error on Skyscanner. Add `rtn=0` for one-way / `rtn=1` for round-trip.
+3. Search target date ±2 days
+4. Apply filters: direct only first; if none, 1-stop
+5. Apply time filters matching the preferences above
+6. Manually collect flight details from the page
 
-Search target date +/- 2 days, apply direct-only filters first, and if none
-exist, search 1-stop options. Apply the same time filters as above, then collect
-flight details from the page.
+---
 
-Compare Skyscanner results against the SerpApi shortlist. Add any viable options
-that SerpApi missed, and flag material price or routing disagreements between
-the two sources.
+## Step 3b: Reconcile (barrier)
+
+Wait for **both** sources before merging: the background SerpApi script (read its `/tmp/find-flights-serpapi.json` output once it finishes) and the Step 3 Skyscanner browser results. Add any viable options that Skyscanner surfaced but SerpApi missed, and flag material price or routing disagreements between the two sources. Only proceed to ranking once both sources are in.
+
+---
 
 ## Step 4: Output
 
-Present the top 3 options in this exact format:
+Present **top 3 options** in this exact format:
 
-```text
-**EUR TOTAL (incl. seat + carry-on add-ons)**
-- [Airline] [Flight number(s)]
-- [Cabin class]
-- [Date] [Dep time] [Dep airport] -> [Date] [Arr time] [Arr airport]
-- Duration [h:mm]
-- [Direct / 1 stop at XXX for Xh Xm]
-**Baggage:** [inclusions + assumed add-ons with EUR]
+```
+**€TOTAL (incl. seat + carry-on add-ons)**
+• [Airline] [Flight number(s)]
+• [Cabin class]
+• [Date] [Dep time] [Dep airport] → [Date] [Arr time] [Arr airport]
+• Duration [h:mm]
+• [Direct / 1 stop at XXX for Xh Xm]
+**Baggage:** [inclusions + assumed add-ons with €]
 **Seats:** [front/extra-legroom availability and cost]
-**Why ranked #n:** [time vs price delta using EUR50/hr rule]
+**Why ranked #n:** [time vs price delta using €50/hr rule]
 **Pros:** [one line]
 **Cons:** [one line]
 ```
 
-Then add a **longer shortlist** section: a bullet list of remaining viable
-options with airline, times, price, and a one-line note.
+Then add a **Longer shortlist** section: a bullet list of remaining viable options with airline, times, price, and 1-line note.
