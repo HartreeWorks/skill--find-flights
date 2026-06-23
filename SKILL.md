@@ -176,12 +176,14 @@ matching event around that date (`gog cal events --from … --to …`) and skip 
 one already exists, so a re-run or a retry after a partial failure doesn't
 duplicate.
 
-1. **The flight**—a timed event. Use each airport's *local* time with its UTC
-   offset so departure and arrival render correctly across timezones:
+1. **The flight**—a timed event. **Always prefix the summary with a plane emoji
+   (`✈️ `)** so flights stand out at a glance on the calendar. Use each airport's
+   *local* time with its UTC offset so departure and arrival render correctly
+   across timezones:
 
    ```bash
    gog cal create primary \
-     --summary "Flight MPL→LHR easyJet EZY1234" \
+     --summary "✈️ Flight MPL→LHR easyJet EZY1234" \
      --from "2026-07-15T11:30:00+02:00" \
      --to   "2026-07-15T13:05:00+01:00" \
      --location "Montpellier Airport (MPL)" \
