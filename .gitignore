@@ -1,5 +1,5 @@
-# Private local data (not published)
-data/
+# Local secrets
+.env
 
 # OS files
 .DS_Store
@@ -7,6 +7,7 @@ data/
 # Python
 __pycache__/
 *.pyc
+.venv/
 
-# Node
-node_modules/
+# Private local data (not published)
+data/

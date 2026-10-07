@@ -5,21 +5,21 @@ description: >
   find the best flight, book a flight, or compare flight options.
   Triggers: "find flights", "search flights", "book a flight", "what flights",
   "fly to", "flight options". Returns ranked options with prices, times, and
-  Peter's preference rules applied.
+  the traveller's preference rules applied.
 ---
 
 # Skill: Find flights
 
-## Peter's preferences
+## Traveller preferences (edit these to match your own)
 
-**Origin:** MPL (Montpellier) by default. If MPL returns no viable results, also search MRS (Marseille, ~1.5h by train)—flag this to Peter. When proposing an MRS departure, budget the ground access realistically: the airport train station (Vitrolles–Aéroport Marseille Provence) is **not** walking distance to the terminals—there's a ~10-minute shuttle to Terminal 1 running only every 10–20 minutes. Add this shuttle time (plus wait) on top of the train journey when working back from the check-in/boarding deadline.
+**Origin:** MPL (Montpellier) by default. If MPL returns no viable results, also search MRS (Marseille, ~1.5h by train)—flag this to the user. When proposing an MRS departure, budget the ground access realistically: the airport train station (Vitrolles–Aéroport Marseille Provence) is **not** walking distance to the terminals—there's a ~10-minute shuttle to Terminal 1 running only every 10–20 minutes. Add this shuttle time (plus wait) on top of the train journey when working back from the check-in/boarding deadline.
 
 **Ticket type:** Assume one-way unless the destination is USA/transatlantic, in which case use round-trip. If round-trip is needed and no return date is given, pause and ask before searching.
 
 **Cabin:**
 * Premium Economy for transatlantic flights
 * Economy for all others
-* **Cheap upgrades:** if a higher cabin (premium economy / business / first) costs ≤20% more than the base fare, take it automatically; above that, surface it and let Peter decide.
+* **Cheap upgrades:** if a higher cabin (premium economy / business / first) costs ≤20% more than the base fare, take it automatically; above that, surface it and let the user decide.
 
 **Date flexibility:** ±2 days unless told otherwise. Always search all five candidate dates.
 
@@ -37,11 +37,11 @@ description: >
 
 **Price vs time:** Value 1 hour of travel-time reduction at €50. Show time-vs-price deltas explicitly in the output.
 
-**Fare type:** **Non-refundable is always the default**—for both flights and any accommodation booked alongside them—unless Peter explicitly asks for refundable/flexible. Pick the cheapest non-refundable fare/rate. No insurance add-ons.
+**Fare type:** **Non-refundable is always the default**—for both flights and any accommodation booked alongside them—unless the user explicitly asks for refundable/flexible. Pick the cheapest non-refundable fare/rate. No insurance add-ons.
 
-**Accommodation alongside a flight:** If Peter also wants a hotel (common for stopovers and late arrivals), use the **find-hotel** skill—it owns the accommodation preferences (default to Booking.com but cross-check direct; non-refundable by default but surface flexible rates when arrival is late or same-day). For Airbnb / short-term rentals use **find-airbnb**.
+**Accommodation alongside a flight:** If the traveller also wants a hotel (common for stopovers and late arrivals), use the [find-hotel](https://github.com/HartreeWorks/skill--find-hotel) skill—it owns the accommodation preferences (default to Booking.com but cross-check direct; non-refundable by default but surface flexible rates when arrival is late or same-day). For Airbnb / short-term rentals use [find-airbnb](https://github.com/HartreeWorks/skill--find-airbnb).
 
-**Third-party agents:** If a third-party agent is >20% cheaper than buying direct, pause and ask Peter before proceeding.
+**Third-party agents:** If a third-party agent is >20% cheaper than buying direct, pause and ask the user before proceeding.
 
 ---
 
@@ -58,7 +58,7 @@ If the request is clear, proceed without asking.
 
 ## Step 2: Primary search—SerpApi
 
-Ensure the `google-search-results` package is installed: `pip install google-search-results`
+Ensure the Python packages are installed: `pip install google-search-results python-dotenv`. The SerpApi key lives in this skill's `.env` as `SERPAPI_KEY` (copy `.env.example`; get a key at [serpapi.com](https://serpapi.com)). If the key is missing, skip to Step 3 and use Skyscanner as the primary source.
 
 Search each of the 5 candidate dates (target ±2 days). For one-way flights, use `type: '2'`; for round-trip, use `type: '1'`. Fire the 5 dates concurrently.
 
@@ -70,7 +70,7 @@ from concurrent.futures import ThreadPoolExecutor
 import os
 from serpapi import GoogleSearch
 
-load_dotenv('/Users/ph/Documents/Projects/travel/.claude/skills/find-flights/.env')
+load_dotenv('path/to/find-flights/.env')  # this skill's .env
 api_key = os.environ['SERPAPI_KEY']
 
 CANDIDATE_DATES = [           # target ±2 days
@@ -123,14 +123,16 @@ with open('/tmp/find-flights-serpapi.json', 'w') as fh:
 
 Always run a Skyscanner search. SerpApi is faster, but it is not always comprehensive; use Skyscanner as a cross-check for missing routes, airlines, providers, or cheaper fares. If SerpApi fails (quota exhausted, auth error, or 0 results across all dates and both MPL/MRS), use Skyscanner as the primary source instead.
 
+Requires the claude-in-chrome browser extension. If no browser tool is available, skip this step and say the results are SerpApi-only.
+
 **This step runs on the main thread, not in a subagent**—claude-in-chrome cannot be reliably driven from a subagent. To parallelise, start Step 2's Python script in the background (`run_in_background`) and do this browser work while it runs; reconcile at Step 3b.
 
-**Always access Skyscanner via claude-in-chrome using Peter's _personal_ Chrome profile**—never any other profile, and never plain WebFetch/curl (Skyscanner needs the real browser session to render all providers). The personal profile is display name `1. Peter`, on-disk directory `Default`, account `your-email@gmail.com`, extension profile ID `cc637b0b-5cf8-472e-9555-ae67241396ec`. Select/confirm this profile (e.g. via `mcp__claude-in-chrome__select_browser` / `list_connected_browsers`) before navigating; if only a non-personal profile is connected, stop and ask Peter to connect the personal one rather than proceeding on the wrong profile.
+**Always access Skyscanner via claude-in-chrome in the user's real Chrome session**—never plain WebFetch/curl (Skyscanner needs the real browser session to render all providers). If several Chrome profiles are connected, confirm which one to use (e.g. via `mcp__claude-in-chrome__list_connected_browsers` / `select_browser`) before navigating.
 
 1. Open Skyscanner using `mcp__claude-in-chrome__navigate`
 2. URL pattern:
    ```
-   # One-way (Peter's default):
+   # One-way (default):
    https://www.skyscanner.net/transport/flights/{from}/{to}/{YYMMDD}/?adultsv2=1&cabinclass=economy&rtn=0
    # Round-trip:
    https://www.skyscanner.net/transport/flights/{from}/{to}/{YYMMDD}/{YYMMDD_return}/?adultsv2=1&cabinclass=economy&rtn=1
@@ -138,7 +140,7 @@ Always run a Skyscanner search. SerpApi is faster, but it is not always comprehe
    `{from}`/`{to}` are lowercase IATA codes; `{YYMMDD}` is the date (e.g. `260624` = 24 Jun 2026). The page loads ~5–7s of JS before all providers report — wait before reading. Prices render in the browser's locale currency (often £ GBP), not necessarily EUR.
 3. Search target date ±2 days
 4. Apply filters: direct only first; if none, 1-stop
-5. Apply time filters matching Peter's preferences
+5. Apply time filters matching the traveller's preferences
 6. Manually collect flight details from the page
 
 ---
@@ -163,15 +165,18 @@ Then, beneath the table, for each option:
 
 Then add a **Longer shortlist** section: a bullet list of remaining viable options with airline, times, price, and 1-line note.
 
+**Same-day timing is the user's call, not yours.** When a preferred date has more than one viable direct flight (≥07:00 departure, ≤21:00 arrival), give each one its own line in the summary table and in the chat reply, framed as a trade-off: more time at the origin versus an earlier arrival. Do not rank a later flight down for getting home later; an arrival up to 21:00 is acceptable, and time at the origin is often the point of the trip. Calendar entries at the destination are soft: note a clash in one clause, but do not treat it as grounds to demote or drop an option.
+
 ---
 
 ## Step 5: After booking—offer to add to Google Calendar
 
-Once Peter confirms a flight is **booked**, offer to add it to his Google
-Calendar. Only proceed if he says yes.
+Once the user confirms a flight is **booked**, offer to add it to their Google
+Calendar. Only proceed if they say yes.
 
-On a yes, create two events per flight on his primary calendar via the `gog cal
-create` CLI (account `your-email@gmail.com`). First check for an existing
+On a yes, create two events per flight on their primary calendar via the `gog cal
+create` CLI ([gogcli](https://github.com/steipete/gogcli); replace `your-email@gmail.com` with your Google account). With
+another calendar tool, create the same two events. First check for an existing
 matching event around that date (`gog cal events --from … --to …`) and skip if
 one already exists, so a re-run or a retry after a partial failure doesn't
 duplicate.
@@ -196,7 +201,7 @@ duplicate.
    no `--transparency` is needed.
 
 2. **Travel day**—an all-day event marked busy, so the flying day shows as
-   unavailable to Peter's booking link and people can't schedule calls then:
+   unavailable to the user's booking link and people can't schedule calls then:
 
    ```bash
    gog cal create primary \
@@ -214,4 +219,4 @@ duplicate.
 
 Repeat for every flight in the itinerary (e.g. both legs of a round-trip), each
 with its own flight event and Travel-day coverage. Confirm the created events
-back to Peter (summary plus date/time).
+back to the user (summary plus date/time).
