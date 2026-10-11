@@ -14,6 +14,8 @@ description: >
 
 **Origin:** MPL (Montpellier) by default. If MPL returns no viable results, also search MRS (Marseille, ~1.5h by train)—flag this to the user. When proposing an MRS departure, budget the ground access realistically: the airport train station (Vitrolles–Aéroport Marseille Provence) is **not** walking distance to the terminals—there's a ~10-minute shuttle to Terminal 1 running only every 10–20 minutes. Add this shuttle time (plus wait) on top of the train journey when working back from the check-in/boarding deadline.
 
+**Getting to and from the airport:** when a report states how long it takes to reach the departure airport or to get from the arrival airport to the destination, take the time from the **find-route** skill (transit with `--at` set to the planned time), not an estimate.
+
 **Ticket type:** Assume one-way unless the destination is USA/transatlantic, in which case use round-trip. If round-trip is needed and no return date is given, pause and ask before searching.
 
 **Cabin:**
